@@ -96,5 +96,14 @@ The result is roughly equivalent to the following (formatted for clarity):
     ("field_two")."field_three" < '9999-01-01T00:00:00Z'
   `
   args := []interface{}{"literal string", time.Time("9999-01-01T00:00:00Z")}
+
+Orderings
+
+This package also includes a structured representation of SQL "order by"
+clauses, and a tool for decoding them from arbitrary text, using the same
+principles as JEL expressions. Currently this is not integrated with JEL in any
+way, and must be decoded separately.
+
+See `Ords` for usage examples.
 */
 package jel

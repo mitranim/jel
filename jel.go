@@ -59,7 +59,7 @@ const (
 Shortcut for instantiating `Expr` with the type of the given value.
 The input is used only as a type carrier.
 */
-func ExprFrom(val interface{}) Expr {
+func ExprFor(val interface{}) Expr {
 	return Expr{Type: reflect.TypeOf(val)}
 }
 
@@ -165,10 +165,11 @@ func (self *Expr) decodeOpPrefix(name string, args []json.RawMessage) (err error
 	if len(args) != 1 {
 		return fmt.Errorf(`[jel] prefix operation %q must have exactly 1 argument, found %v`, name, len(args))
 	}
-	self.Append(`(`)
+
+	self.openParen()
 	self.Append(name)
 	must(self.decode(args[0]))
-	appendStr(&self.Text, `)`)
+	self.closeParen()
 	return nil
 }
 
@@ -177,10 +178,11 @@ func (self *Expr) decodeOpPostfix(name string, args []json.RawMessage) (err erro
 	if len(args) != 1 {
 		return fmt.Errorf(`[jel] postfix operation %q must have exactly 1 argument, found %v`, name, len(args))
 	}
-	self.Append(`(`)
+
+	self.openParen()
 	must(self.decode(args[0]))
 	self.Append(name)
-	appendStr(&self.Text, `)`)
+	self.closeParen()
 	return nil
 }
 
@@ -190,28 +192,28 @@ func (self *Expr) decodeOpInfix(name string, args []json.RawMessage) (err error)
 		return fmt.Errorf(`[jel] infix operation %q must have at least 2 arguments, found %v`, name, len(args))
 	}
 
-	self.Append(`(`)
+	self.openParen()
 	for i, arg := range args {
 		if i > 0 {
 			self.Append(name)
 		}
 		must(self.decode(arg))
 	}
-	appendStr(&self.Text, `)`)
+	self.closeParen()
 	return nil
 }
 
 func (self *Expr) decodeOpFunc(name string, args []json.RawMessage) (err error) {
 	defer rec(&err)
 	self.Append(name)
-	self.Append(`(`)
+	self.openParen()
 	for i, arg := range args {
 		if i > 0 {
 			appendStr(&self.Text, `, `)
 		}
 		must(self.decode(arg))
 	}
-	appendStr(&self.Text, `)`)
+	self.closeParen()
 	return nil
 }
 
@@ -221,14 +223,14 @@ func (self *Expr) decodeOpAny(name string, args []json.RawMessage) (err error) {
 		return fmt.Errorf(`[jel] operation %q must have exactly 2 arguments, found %v`, name, len(args))
 	}
 
-	self.Append(`(`)
+	self.openParen()
 	must(self.decode(args[0]))
 	self.Append(`=`)
 	self.Append(name)
-	appendStr(&self.Text, `(`)
+	self.openParen()
 	must(self.decode(args[1]))
-	appendStr(&self.Text, `)`)
-	appendStr(&self.Text, `)`)
+	self.closeParen()
+	self.closeParen()
 	return nil
 }
 
@@ -238,13 +240,13 @@ func (self *Expr) decodeOpBetween(name string, args []json.RawMessage) (err erro
 		return fmt.Errorf(`[jel] operation %q must have exactly 3 arguments, found %v`, name, len(args))
 	}
 
-	self.Append(`(`)
+	self.openParen()
 	must(self.decode(args[0]))
 	self.Append(`between`)
 	must(self.decode(args[1]))
 	self.Append(`and`)
 	must(self.decode(args[2]))
-	appendStr(&self.Text, `)`)
+	self.closeParen()
 	return nil
 }
 
@@ -290,3 +292,6 @@ func (self *Expr) decodeAny(input []byte) error {
 	self.Append("$1", val)
 	return nil
 }
+
+func (self *Expr) openParen()  { self.Append(`(`) }
+func (self *Expr) closeParen() { self.Append(`)`) }

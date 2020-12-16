@@ -7,9 +7,16 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"unicode/utf8"
+	"unsafe"
 
 	"github.com/mitranim/refut"
 )
+
+const dottedPath = `(?:\w+\.)*\w+`
+
+var dottedPathReg = regexp.MustCompile(`^` + dottedPath + `$`)
+var ordReg = regexp.MustCompile(`^(` + dottedPath + `)\s+(?i)(asc|desc)$`)
 
 func rec(ptr *error) {
 	val := recover()
@@ -100,10 +107,8 @@ func sfieldByJsonName(rtype reflect.Type, name string, out *reflect.StructField)
 		return err
 	}
 
-	return fmt.Errorf(`[jel] no struct field corresponding to JSON field name %q`, name)
+	return fmt.Errorf(`[jel] no struct field corresponding to JSON field name %q in type %v`, name, rtype)
 }
-
-var dottedPathReg = regexp.MustCompile(`^(?:\w+\.)*\w+$`)
 
 /*
 Takes a struct type and a dot-separated path of JSON field names
@@ -147,6 +152,8 @@ func structFieldByJsonPath(rtype reflect.Type, pathStr string) (sfield reflect.S
 
 func appendSqlPath(buf *[]byte, path []string) {
 	for i, str := range path {
+		// Just a sanity check. We probably shouldn't allow to decode such
+		// identifiers in the first place.
 		if strings.Contains(str, `"`) {
 			panic(fmt.Errorf(`[jel] unexpected %q in SQL identifier %q`, `"`, str))
 		}
@@ -161,5 +168,42 @@ func appendSqlPath(buf *[]byte, path []string) {
 			appendStr(buf, `.`)
 			appendEnclosed(buf, `"`, str, `"`)
 		}
+	}
+}
+
+func appendedBy(fun func(*[]byte)) []byte {
+	var buf []byte
+	fun(&buf)
+	return buf
+}
+
+/*
+Allocation-free conversion. Reinterprets a byte slice as a string. Borrowed from
+the standard library. Reasonably safe. Should not be used when the underlying
+byte array is volatile, for example when it's part of a scratch buffer during
+SQL scanning.
+*/
+func bytesToMutableString(bytes []byte) string {
+	return *(*string)(unsafe.Pointer(&bytes))
+}
+
+// Duplicated from `sqlb`.
+func appendSpaceIfNeeded(buf *[]byte) {
+	if buf != nil && len(*buf) > 0 && !endsWithWhitspace(*buf) {
+		*buf = append(*buf, ` `...)
+	}
+}
+
+func endsWithWhitspace(chunk []byte) bool {
+	char, _ := utf8.DecodeLastRune(chunk)
+	return isWhitespaceChar(char)
+}
+
+func isWhitespaceChar(char rune) bool {
+	switch char {
+	case ' ', '\n', '\r', '\t', '\v':
+		return true
+	default:
+		return false
 	}
 }

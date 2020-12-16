@@ -7,16 +7,16 @@ import (
 	"time"
 )
 
+type Internal struct {
+	InternalTime *time.Time `json:"internalTime" db:"internal_time"`
+}
+
+type External struct {
+	ExternalName string   `json:"externalName" db:"external_name"`
+	Internal     Internal `json:"internal"     db:"internal"`
+}
+
 func TestTranscode(t *testing.T) {
-	type Internal struct {
-		InternalTime *time.Time `json:"internalTime" db:"internal_time"`
-	}
-
-	type External struct {
-		ExternalName string   `json:"externalName" db:"external_name"`
-		Internal     Internal `json:"internal"     db:"internal"`
-	}
-
 	const src = `
 		["and",
 			["or",
@@ -30,14 +30,14 @@ func TestTranscode(t *testing.T) {
 		]
 	`
 
-	expr := ExprFrom(External{})
+	expr := ExprFor(External{})
 	err := json.Unmarshal([]byte(src), &expr)
 	if err != nil {
 		t.Fatalf("unexpected transcoding error: %+v", err)
 	}
 
 	// Not as pretty as we'd like. TODO improve.
-	textExp := `( ( $1 or ("external_name" = $2)) and ( $3 and (("internal")."internal_time" < $4)))`
+	textExp := `( ( $1 or ("external_name" = $2 ) ) and ( $3 and (("internal")."internal_time" < $4 ) ) )`
 	textGot := expr.String()
 
 	if textExp != textGot {

@@ -8,6 +8,14 @@ See the sibling library https://github.com/mitranim/sqlb for SQL query building.
 
 ## Changelog
 
+### 0.1.1
+
+Added `Ords` for SQL `order by`.
+
+The new type `Ords` represents an SQL `order by` clause in a structured fashion, and allows to safely decode it from client input. Just like `Expr`, decoding `Ords` is performed by consulting a user-specified struct type. JSON field names are converted to DB column names, unknown fields cause a parse error. When encoding for SQL, identifiers are quoted for safety.
+
+Minor breaking change: renamed `ExprFrom` → `ExprFor`.
+
 ### 0.1.0
 
 First tagged release.

@@ -31,7 +31,7 @@ func ExampleTranscode() {
 		]
 	`
 
-	expr := jel.ExprFrom(External{})
+	expr := jel.ExprFor(External{})
 	err := json.Unmarshal([]byte(src), &expr)
 	if err != nil {
 		panic(err)
