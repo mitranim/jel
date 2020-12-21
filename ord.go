@@ -210,8 +210,8 @@ func (self Ord) AppendBytes(buf *[]byte) {
 	appendSqlPath(buf, self.Path)
 	appendStr(buf, " ")
 	if self.IsDesc {
-		appendStr(buf, "desc")
+		appendStr(buf, "desc nulls last")
 	} else {
-		appendStr(buf, "asc")
+		appendStr(buf, "asc nulls last")
 	}
 }

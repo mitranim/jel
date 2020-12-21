@@ -8,6 +8,10 @@ See the sibling library https://github.com/mitranim/sqlb for SQL query building.
 
 ## Changelog
 
+### 0.1.2
+
+Minor breaking change: `Ord` now uses the `nulls last` qualifier. We might want to make this configurable in the future.
+
 ### 0.1.1
 
 Added `Ords` for SQL `order by`.

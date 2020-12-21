@@ -24,16 +24,16 @@ func TestOrdDesc(t *testing.T) {
 
 func TestOrdString(t *testing.T) {
 	t.Run(`singular`, func(t *testing.T) {
-		eq(t, `"one" asc`, OrdAsc(`one`).String())
-		eq(t, `"one" desc`, OrdDesc(`one`).String())
+		eq(t, `"one" asc nulls last`, OrdAsc(`one`).String())
+		eq(t, `"one" desc nulls last`, OrdDesc(`one`).String())
 	})
 	t.Run(`binary`, func(t *testing.T) {
-		eq(t, `("one")."two" asc`, OrdAsc(`one`, `two`).String())
-		eq(t, `("one")."two" desc`, OrdDesc(`one`, `two`).String())
+		eq(t, `("one")."two" asc nulls last`, OrdAsc(`one`, `two`).String())
+		eq(t, `("one")."two" desc nulls last`, OrdDesc(`one`, `two`).String())
 	})
 	t.Run(`plural`, func(t *testing.T) {
-		eq(t, `("one")."two"."three" asc`, OrdAsc(`one`, `two`, `three`).String())
-		eq(t, `("one")."two"."three" desc`, OrdDesc(`one`, `two`, `three`).String())
+		eq(t, `("one")."two"."three" asc nulls last`, OrdAsc(`one`, `two`, `three`).String())
+		eq(t, `("one")."two"."three" desc nulls last`, OrdDesc(`one`, `two`, `three`).String())
 	})
 }
 
@@ -42,16 +42,16 @@ func TestOrdsString(t *testing.T) {
 		eq(t, ``, Ords{}.String())
 	})
 	t.Run(`singular`, func(t *testing.T) {
-		eq(t, `order by "one" asc`, OrdsFrom(OrdAsc(`one`)).String())
-		eq(t, `order by "one" desc`, OrdsFrom(OrdDesc(`one`)).String())
+		eq(t, `order by "one" asc nulls last`, OrdsFrom(OrdAsc(`one`)).String())
+		eq(t, `order by "one" desc nulls last`, OrdsFrom(OrdDesc(`one`)).String())
 	})
 	t.Run(`binary`, func(t *testing.T) {
-		eq(t, `order by ("one")."two" asc`, OrdsFrom(OrdAsc(`one`, `two`)).String())
-		eq(t, `order by ("one")."two" desc`, OrdsFrom(OrdDesc(`one`, `two`)).String())
+		eq(t, `order by ("one")."two" asc nulls last`, OrdsFrom(OrdAsc(`one`, `two`)).String())
+		eq(t, `order by ("one")."two" desc nulls last`, OrdsFrom(OrdDesc(`one`, `two`)).String())
 	})
 	t.Run(`plural`, func(t *testing.T) {
-		eq(t, `order by ("one")."two"."three" asc`, OrdsFrom(OrdAsc(`one`, `two`, `three`)).String())
-		eq(t, `order by ("one")."two"."three" desc`, OrdsFrom(OrdDesc(`one`, `two`, `three`)).String())
+		eq(t, `order by ("one")."two"."three" asc nulls last`, OrdsFrom(OrdAsc(`one`, `two`, `three`)).String())
+		eq(t, `order by ("one")."two"."three" desc nulls last`, OrdsFrom(OrdDesc(`one`, `two`, `three`)).String())
 	})
 }
 
@@ -60,13 +60,13 @@ func TestOrdsQueryAppend(t *testing.T) {
 		var query sqlb.Query
 		query.Append(`select from where`)
 		query.AppendQuery(OrdsFrom(OrdAsc(`one`, `two`, `three`)))
-		eq(t, `select from where order by ("one")."two"."three" asc`, query.String())
+		eq(t, `select from where order by ("one")."two"."three" asc nulls last`, query.String())
 	})
 
 	t.Run(`parametrized`, func(t *testing.T) {
 		var query sqlb.Query
 		query.Append(`select from where $1`, OrdsFrom(OrdAsc(`one`, `two`, `three`)))
-		eq(t, `select from where order by ("one")."two"."three" asc`, query.String())
+		eq(t, `select from where order by ("one")."two"."three" asc nulls last`, query.String())
 	})
 }
 
@@ -96,7 +96,7 @@ func TestOrdsDec(t *testing.T) {
 	})
 
 	t.Run(`reject_unknown_fields`, func(t *testing.T) {
-		input := []string{"external_name asc"}
+		input := []string{"external_name asc nulls last"}
 		ords := OrdsFor(External{})
 
 		err := ords.ParseSlice(input)
@@ -106,7 +106,7 @@ func TestOrdsDec(t *testing.T) {
 	})
 
 	t.Run(`fail_when_type_is_not_provided`, func(t *testing.T) {
-		input := []string{"some_ident asc"}
+		input := []string{"some_ident asc nulls last"}
 		ords := OrdsFor(nil)
 
 		err := ords.ParseSlice(input)
