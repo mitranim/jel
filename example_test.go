@@ -8,7 +8,7 @@ import (
 	"github.com/mitranim/jel"
 )
 
-func ExampleTranscode() {
+func ExampleExpr() {
 	type Internal struct {
 		InternalTime *time.Time `json:"internalTime" db:"internal_time"`
 	}

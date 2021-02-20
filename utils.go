@@ -7,8 +7,6 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
-	"unicode/utf8"
-	"unsafe"
 
 	"github.com/mitranim/refut"
 )
@@ -16,7 +14,6 @@ import (
 const dottedPath = `(?:\w+\.)*\w+`
 
 var dottedPathReg = regexp.MustCompile(`^` + dottedPath + `$`)
-var ordReg = regexp.MustCompile(`^(` + dottedPath + `)\s+(?i)(asc|desc)$`)
 
 func rec(ptr *error) {
 	val := recover()
@@ -33,11 +30,10 @@ func rec(ptr *error) {
 	panic(val)
 }
 
-func must(err error) error {
+func must(err error) {
 	if err != nil {
 		panic(err)
 	}
-	return nil
 }
 
 func appendStr(buf *[]byte, str string) {
@@ -168,42 +164,5 @@ func appendSqlPath(buf *[]byte, path []string) {
 			appendStr(buf, `.`)
 			appendEnclosed(buf, `"`, str, `"`)
 		}
-	}
-}
-
-func appendedBy(fun func(*[]byte)) []byte {
-	var buf []byte
-	fun(&buf)
-	return buf
-}
-
-/*
-Allocation-free conversion. Reinterprets a byte slice as a string. Borrowed from
-the standard library. Reasonably safe. Should not be used when the underlying
-byte array is volatile, for example when it's part of a scratch buffer during
-SQL scanning.
-*/
-func bytesToMutableString(bytes []byte) string {
-	return *(*string)(unsafe.Pointer(&bytes))
-}
-
-// Duplicated from `sqlb`.
-func appendSpaceIfNeeded(buf *[]byte) {
-	if buf != nil && len(*buf) > 0 && !endsWithWhitespace(*buf) {
-		*buf = append(*buf, ` `...)
-	}
-}
-
-func endsWithWhitespace(chunk []byte) bool {
-	char, _ := utf8.DecodeLastRune(chunk)
-	return isWhitespaceChar(char)
-}
-
-func isWhitespaceChar(char rune) bool {
-	switch char {
-	case ' ', '\n', '\r', '\t', '\v':
-		return true
-	default:
-		return false
 	}
 }
