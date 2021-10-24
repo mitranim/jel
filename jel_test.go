@@ -1,10 +1,11 @@
 package jel
 
 import (
-	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/mitranim/sqlb"
 )
 
 type Internal struct {
@@ -30,33 +31,40 @@ func TestTranscode(t *testing.T) {
 		]
 	`
 
-	expr := ExprFor(External{})
-	err := json.Unmarshal([]byte(src), &expr)
-	if err != nil {
-		t.Fatalf("unexpected transcoding error: %+v", err)
-	}
+	expr := Expr{Text: src, Type: elemTypeOf((*External)(nil))}
+	text, args := sqlb.Reify(expr)
 
-	// Not as pretty as we'd like. TODO improve.
-	textExp := `( ( $1 or ("external_name" = $2 ) ) and ( $3 and (("internal")."internal_time" < $4 ) ) )`
-	textGot := expr.String()
+	eq(
+		t,
+		`(($1 or ("external_name" = $2)) and ($3 and (("internal")."internal_time" < $4)))`,
+		text,
+	)
 
-	if textExp != textGot {
-		t.Fatalf("expected the resulting query to be:\n%v\ngot:\n%v\n", textExp, textGot)
-	}
-
-	argsExp := []interface{}{false, "literal string", true, timeFrom("9999-01-01T00:00:00Z")}
-	argsGot := expr.Args
-
-	if !reflect.DeepEqual(argsExp, argsGot) {
-		t.Fatalf("expected the resulting args to be:\n%v\ngot:\n%v\n", argsExp, argsGot)
-	}
+	eq(
+		t,
+		[]interface{}{false, `literal string`, true, timeFrom(`9999-01-01T00:00:00Z`)},
+		args,
+	)
 }
 
 func timeFrom(str string) *time.Time {
-	var inst time.Time
-	err := inst.UnmarshalText([]byte(str))
-	if err != nil {
-		panic(err)
-	}
+	inst, err := time.Parse(time.RFC3339, str)
+	try(err)
 	return &inst
+}
+
+func eq(t testing.TB, exp, act interface{}) {
+	t.Helper()
+	if !reflect.DeepEqual(exp, act) {
+		t.Fatalf(`
+expected (detailed):
+	%#[1]v
+actual (detailed):
+	%#[2]v
+expected (simple):
+	%[1]v
+actual (simple):
+	%[2]v
+`, exp, act)
+	}
 }

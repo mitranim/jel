@@ -1,3 +1,99 @@
+/*
+Overview
+
+"JSON Expession Language". Expresses a whitelisted subset of SQL with simple
+JSON structures. Transcodes JSON queries to SQL.
+
+Example query. See below for more code examples.
+
+	["and",
+		["=", "someField", 12345678],
+		["or",
+			"anotherField",
+			["<", "inner.otherField", ["inner.otherField", "9999-01-01T00:00:00Z"]]
+		]
+	]
+
+Language structure
+
+Expressions are Lisp-style, using nested lists to express "calls". This syntax
+is used for all SQL operations. Binary infix operators are considered
+variadic.
+
+Lists are used for calls and casts. The first element must be a string. It may
+be one of the whitelisted operators or functions, listed in `SqlOps`. If not,
+it must be a field name or a dot-separated field path. Calls are arbitrarily
+nestable.
+
+	["and", true, ["or", true, ["and", true, false]]]
+
+	["<=", 10, 20]
+
+	["=", "someField", "otherField"]
+
+	["and",
+		["=", "someField", "otherField"],
+		["<=", "dateField", ["dateField", "9999-01-01T00:00:00Z"]]
+	]
+
+Transcoding from JSON to SQL is done by consulting two things: the built-in
+whitelist of SQL operations (`SqlOps`, shared), and a struct type provided to
+that particular decoder. The struct serves as a whitelist of available
+identifiers, and allows to determine value types via casting.
+
+Casting allows to decode arbitrary JSON directly into the corresponding Go type:
+
+	["someDateField", "9999-01-01T00:00:00Z"]
+
+	["someGeoField", {"lng": 10, "lat": 20}]
+
+Such decoded values are substituted with ordinal parameters such as $1, and
+appended to the slice of arguments (see below).
+
+A string not in a call position and not inside a cast is interpreted as an
+identifier: field name or nested field path, dot-separated. It must be found on
+the reference struct, otherwise transcoding fails with an error.
+
+	"someField"
+
+	"outerField.innerField"
+
+Literal numbers, booleans, and nulls that occur outside of casts are decoded
+into their Go equivalents. Like casts, they're substituted with ordinal parameters
+and appended to the slice of arguments. See `Expr`.
+
+Consulting a struct
+
+JSON queries are transcoded against a struct, by matching fields tagged with
+`json` against fields tagged with `db`. Literal values are JSON-decoded into
+the types of the corresponding struct fields.
+
+	type Input struct {
+		FieldOne string `json:"fieldOne" db:"field_one"`
+		FIeldTwo struct {
+			FieldThree *time.Time `json:"fieldThree" db:"field_three"`
+		} `json:"fieldTwo" db:"field_two"`
+	}
+
+	const src = `
+		["and",
+			["=", "fieldOne", ["fieldOne", "literal string"]],
+			["<", "fieldTwo.fieldThree", ["fieldTwo.fieldThree", "9999-01-01T00:00:00Z"]]
+		]
+	`
+
+	expr := Expr{Text: src, Type: reflect.TypeOf((*Input)(nil)).Elem()}
+	text, args := expr.AppendExpr(nil, nil)
+
+The result is roughly equivalent to the following (formatted for clarity):
+
+	text := []byte(`
+		"field_one" = 'literal string'
+		and
+		("field_two")."field_three" < '9999-01-01T00:00:00Z'
+	`)
+	args := []interface{}{"literal string", time.Time("9999-01-01T00:00:00Z")}
+*/
 package jel
 
 import (
@@ -60,7 +156,7 @@ Shortcut for instantiating `Expr` with the type of the given value.
 The input is used only as a type carrier.
 */
 func ExprFor(val interface{}) Expr {
-	return Expr{Type: reflect.TypeOf(val)}
+	return Expr{Type: elemTypeOf(val)}
 }
 
 /*
@@ -68,230 +164,218 @@ Shortcut for instantiating a boolean-style `Expr` with the type of the given val
 The input is used only as a type carrier.
 */
 func Bool(val interface{}) Expr {
-	return Expr{Type: reflect.TypeOf(val), IsBool: true}
+	return Expr{Type: elemTypeOf(val), IsBool: true}
 }
 
 /*
-Tool for transcoding JEL into SQL.
-
-Embeds `sqlb.Query` and implements `sqlb.IQuery`. Can be transparently used as a
-sub-query for other `sqlb` queries.
+Tool for transcoding JEL into SQL. Implements `sqlb.Expr`. Can be transparently
+used as a sub-expression in other `sqlb` expressions.
 */
 type Expr struct {
-	sqlb.Query
+	Text   string
 	Type   reflect.Type
 	IsBool bool
 }
 
+var _ = sqlb.Expr(Expr{})
+
+// Stores the input for future use in `.AppendExpr`. Input must be valid JSON.
+func (self *Expr) UnmarshalText(val []byte) error {
+	self.Text = bytesToMutableString(val)
+	return nil
+}
+
+// Stores the input for future use in `.AppendExpr`. Input must be valid JSON.
+func (self *Expr) UnmarshalJSON(val []byte) error {
+	self.Text = bytesToStringAlloc(val)
+	return nil
+}
+
 /*
-Support decoding from text, which must be valid JSON. This is provided for cases
-like decoding from URL queries or other sources that don't originate in JSON.
+Implement `sqlb.Expr`, allowing this to be used as a sub-expression in queries
+built with "github.com/mitranim/sqlb". If `.IsBool == true`, this will generate
+a valid boolean expression, falling back on "true" if the expression is empty.
 */
-func (self *Expr) UnmarshalText(input []byte) error { return self.decode(input) }
+func (self Expr) AppendExpr(text []byte, args []interface{}) ([]byte, []interface{}) {
+	bui := sqlb.Bui{Text: text, Args: args}
 
-// Support decoding from JSON.
-func (self *Expr) UnmarshalJSON(input []byte) error { return self.decode(input) }
-
-var _ = sqlb.IQuery(Expr{})
-
-/*
-Implement `sqlb.IQuery`. If `.IsBool = true` and the query is empty, this will
-append `true`; this allows the caller to always expect some expression, avoiding
-invalid syntax.
-*/
-func (self Expr) QueryAppend(out *sqlb.Query) {
-	if self.IsBool && len(self.Query.Text) == 0 {
-		out.Append(`true`)
+	if self.IsBool && len(self.Text) == 0 {
+		bui.Str(`true`)
 	} else {
-		self.Query.QueryAppend(out)
+		self.decode(&bui, stringToBytesUnsafe(self.Text))
 	}
+
+	return bui.Get()
 }
 
-func (self *Expr) decode(input []byte) error {
+// Implement the `Appender` interface, sometimes allowing more efficient text
+// encoding.
+func (self Expr) Append(text []byte) []byte { return exprAppend(&self, text) }
+
+// Implement the `fmt.Stringer` interface for debug purposes.
+func (self Expr) String() string { return exprString(&self) }
+
+func (self *Expr) decode(bui *sqlb.Bui, input []byte) {
 	if isJsonDict(input) {
-		return fmt.Errorf(`[jel] unexpected dict in input: %q`, input)
+		panic(fmt.Errorf(`[jel] unexpected dict in input: %q`, input))
+	} else if isJsonList(input) {
+		self.decodeList(bui, input)
+	} else if isJsonString(input) {
+		self.decodeString(bui, input)
+	} else {
+		self.decodeAny(bui, input)
 	}
-	if isJsonList(input) {
-		return self.decodeList(input)
-	}
-	if isJsonString(input) {
-		return self.decodeString(input)
-	}
-	return self.decodeAny(input)
 }
 
-func (self *Expr) decodeList(input []byte) error {
+func (self *Expr) decodeList(bui *sqlb.Bui, input []byte) {
 	var list []json.RawMessage
 	err := json.Unmarshal(input, &list)
 	if err != nil {
-		return fmt.Errorf(`[jel] failed to unmarshal as JSON list: %w`, err)
+		panic(fmt.Errorf(`[jel] failed to unmarshal as JSON list: %w`, err))
 	}
 
 	if !(len(list) > 0) {
-		return fmt.Errorf(`[jel] lists must have at least one element, found empty list`)
+		panic(fmt.Errorf(`[jel] lists must have at least one element, found empty list`))
 	}
 
 	head, args := list[0], list[1:]
 	if !isJsonString(head) {
-		return fmt.Errorf(`[jel] first list element must be a string, found %q`, head)
+		panic(fmt.Errorf(`[jel] first list element must be a string, found %q`, head))
 	}
 
 	var name string
 	err = json.Unmarshal(head, &name)
 	if err != nil {
-		return fmt.Errorf(`[jel] failed to unmarshal JSON list head as string: %w`, err)
+		panic(fmt.Errorf(`[jel] failed to unmarshal JSON list head as string: %w`, err))
 	}
 
 	switch SqlOps[name] {
 	case SqlPrefix:
-		return self.decodeOpPrefix(name, args)
+		self.decodeOpPrefix(bui, name, args)
 	case SqlPostfix:
-		return self.decodeOpPostfix(name, args)
+		self.decodeOpPostfix(bui, name, args)
 	case SqlInfix:
-		return self.decodeOpInfix(name, args)
+		self.decodeOpInfix(bui, name, args)
 	case SqlFunc:
-		return self.decodeOpFunc(name, args)
+		self.decodeOpFunc(bui, name, args)
 	case SqlAny:
-		return self.decodeOpAny(name, args)
+		self.decodeOpAny(bui, name, args)
 	case SqlBetween:
-		return self.decodeOpBetween(name, args)
+		self.decodeOpBetween(bui, name, args)
+	default:
+		self.decodeCast(bui, name, args)
 	}
-
-	return self.decodeCast(name, args)
 }
 
-func (self *Expr) decodeOpPrefix(name string, args []json.RawMessage) (err error) {
-	defer rec(&err)
+func (self *Expr) decodeOpPrefix(bui *sqlb.Bui, name string, args []json.RawMessage) {
 	if len(args) != 1 {
-		return fmt.Errorf(`[jel] prefix operation %q must have exactly 1 argument, found %v`, name, len(args))
+		panic(fmt.Errorf(`[jel] prefix operation %q must have exactly 1 argument, found %v`, name, len(args)))
 	}
 
-	self.openParen()
-	self.Append(name)
-	must(self.decode(args[0]))
-	self.closeParen()
-	return nil
+	openParen(bui)
+	bui.Str(name)
+	self.decode(bui, args[0])
+	closeParen(bui)
 }
 
-func (self *Expr) decodeOpPostfix(name string, args []json.RawMessage) (err error) {
-	defer rec(&err)
+func (self *Expr) decodeOpPostfix(bui *sqlb.Bui, name string, args []json.RawMessage) {
 	if len(args) != 1 {
-		return fmt.Errorf(`[jel] postfix operation %q must have exactly 1 argument, found %v`, name, len(args))
+		panic(fmt.Errorf(`[jel] postfix operation %q must have exactly 1 argument, found %v`, name, len(args)))
 	}
 
-	self.openParen()
-	must(self.decode(args[0]))
-	self.Append(name)
-	self.closeParen()
-	return nil
+	openParen(bui)
+	self.decode(bui, args[0])
+	bui.Str(name)
+	closeParen(bui)
 }
 
-func (self *Expr) decodeOpInfix(name string, args []json.RawMessage) (err error) {
-	defer rec(&err)
+func (self *Expr) decodeOpInfix(bui *sqlb.Bui, name string, args []json.RawMessage) {
 	if !(len(args) >= 2) {
-		return fmt.Errorf(`[jel] infix operation %q must have at least 2 arguments, found %v`, name, len(args))
+		panic(fmt.Errorf(`[jel] infix operation %q must have at least 2 arguments, found %v`, name, len(args)))
 	}
 
-	self.openParen()
+	openParen(bui)
 	for i, arg := range args {
 		if i > 0 {
-			self.Append(name)
+			bui.Str(name)
 		}
-		must(self.decode(arg))
+		self.decode(bui, arg)
 	}
-	self.closeParen()
-	return nil
+	closeParen(bui)
 }
 
-func (self *Expr) decodeOpFunc(name string, args []json.RawMessage) (err error) {
-	defer rec(&err)
-	self.Append(name)
-	self.openParen()
+func (self *Expr) decodeOpFunc(bui *sqlb.Bui, name string, args []json.RawMessage) {
+	bui.Str(name)
+	openParen(bui)
 	for i, arg := range args {
 		if i > 0 {
-			appendStr(&self.Text, `, `)
+			bui.Str(`,`)
 		}
-		must(self.decode(arg))
+		self.decode(bui, arg)
 	}
-	self.closeParen()
-	return nil
+	closeParen(bui)
 }
 
-func (self *Expr) decodeOpAny(name string, args []json.RawMessage) (err error) {
-	defer rec(&err)
+func (self *Expr) decodeOpAny(bui *sqlb.Bui, name string, args []json.RawMessage) {
 	if len(args) != 2 {
-		return fmt.Errorf(`[jel] operation %q must have exactly 2 arguments, found %v`, name, len(args))
+		panic(fmt.Errorf(`[jel] operation %q must have exactly 2 arguments, found %v`, name, len(args)))
 	}
 
-	self.openParen()
-	must(self.decode(args[0]))
-	self.Append(`=`)
-	self.Append(name)
-	self.openParen()
-	must(self.decode(args[1]))
-	self.closeParen()
-	self.closeParen()
-	return nil
+	openParen(bui)
+	self.decode(bui, args[0])
+	bui.Str(`=`)
+	bui.Str(name)
+	openParen(bui)
+	self.decode(bui, args[1])
+	closeParen(bui)
+	closeParen(bui)
 }
 
-func (self *Expr) decodeOpBetween(name string, args []json.RawMessage) (err error) {
-	defer rec(&err)
+func (self *Expr) decodeOpBetween(bui *sqlb.Bui, name string, args []json.RawMessage) {
 	if len(args) != 3 {
-		return fmt.Errorf(`[jel] operation %q must have exactly 3 arguments, found %v`, name, len(args))
+		panic(fmt.Errorf(`[jel] operation %q must have exactly 3 arguments, found %v`, name, len(args)))
 	}
 
-	self.openParen()
-	must(self.decode(args[0]))
-	self.Append(`between`)
-	must(self.decode(args[1]))
-	self.Append(`and`)
-	must(self.decode(args[2]))
-	self.closeParen()
-	return nil
+	openParen(bui)
+	self.decode(bui, args[0])
+	bui.Str(`between`)
+	self.decode(bui, args[1])
+	bui.Str(`and`)
+	self.decode(bui, args[2])
+	closeParen(bui)
 }
 
-func (self *Expr) decodeCast(name string, args []json.RawMessage) (err error) {
-	defer rec(&err)
+func (self *Expr) decodeCast(bui *sqlb.Bui, name string, args []json.RawMessage) {
 	if len(args) != 1 {
-		return fmt.Errorf(`[jel] cast into %q must have exactly 1 argument, found %v`, name, len(args))
+		panic(fmt.Errorf(`[jel] cast into %q must have exactly 1 argument, found %v`, name, len(args)))
 	}
 
-	sfield, _, err := structFieldByJsonPath(self.Type, name)
-	must(err)
+	sfield, _, err := fieldByJsonPath(self.Type, name)
+	try(err)
 
 	rval := reflect.New(sfield.Type)
-	must(json.Unmarshal(args[0], rval.Interface()))
+	try(json.Unmarshal(args[0], rval.Interface()))
 
-	self.Append("$1", rval.Elem().Interface())
-	return nil
+	bui.Param(bui.Arg(rval.Elem().Interface()))
 }
 
-func (self *Expr) decodeString(input []byte) (err error) {
-	defer rec(&err)
-
+func (self *Expr) decodeString(bui *sqlb.Bui, input []byte) {
 	var str string
-	must(json.Unmarshal(input, &str))
+	try(json.Unmarshal(input, &str))
 
-	_, path, err := structFieldByJsonPath(self.Type, str)
-	if err != nil {
-		return err
-	}
+	_, path, err := fieldByJsonPath(self.Type, str)
+	try(err)
 
-	appendSqlPath(&self.Text, path)
-	return nil
+	bui.Set(sqlb.Path(path).AppendExpr(bui.Get()))
 }
 
 // Should be used only for numbers, bools, nulls.
 // TODO: unmarshal integers into `int64` rather than `float64`.
-func (self *Expr) decodeAny(input []byte) error {
+func (self *Expr) decodeAny(bui *sqlb.Bui, input []byte) {
 	var val interface{}
-	err := json.Unmarshal(input, &val)
-	if err != nil {
-		return err
-	}
-	self.Append("$1", val)
-	return nil
+	try(json.Unmarshal(input, &val))
+	bui.Param(bui.Arg(val))
 }
 
-func (self *Expr) openParen()  { self.Append(`(`) }
-func (self *Expr) closeParen() { self.Append(`)`) }
+func openParen(bui *sqlb.Bui)  { bui.Str(`(`) }
+func closeParen(bui *sqlb.Bui) { bui.Str(`)`) }

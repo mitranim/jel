@@ -1,8 +1,8 @@
 package jel_test
 
 import (
-	"encoding/json"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/mitranim/jel"
@@ -31,17 +31,16 @@ func ExampleExpr() {
 		]
 	`
 
-	expr := jel.ExprFor(External{})
-	err := json.Unmarshal([]byte(src), &expr)
-	if err != nil {
-		panic(err)
+	expr := jel.Expr{
+		Text: src,
+		Type: reflect.TypeOf((*External)(nil)).Elem(),
 	}
 
-	fmt.Println(expr.String())
+	text, args := expr.AppendExpr(nil, nil)
 
-	/**
-	Formatted here for readability:
-
-	($1 or "external_name" = $2) and ($3 and ("internal")."internal_time" < $4)
-	*/
+	fmt.Println(string(text))
+	fmt.Printf("%#v\n", args)
+	// Output:
+	// (($1 or ("external_name" = $2)) and ($3 and (("internal")."internal_time" < $4)))
+	// []interface {}{false, "literal string", true, time.Date(9999, time.January, 1, 0, 0, 0, 0, time.UTC)}
 }

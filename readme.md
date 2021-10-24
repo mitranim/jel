@@ -6,7 +6,13 @@ See the full documentation at https://godoc.org/github.com/mitranim/jel.
 
 See the sibling library https://github.com/mitranim/sqlb for SQL query building.
 
+**This repo is deprecated: the code has been merged into https://github.com/mitranim/sqlb.**
+
 ## Changelog
+
+### 0.2.0
+
+Update to match the recent breaking changes in the `sqlb` package.
 
 ### 0.1.3
 
