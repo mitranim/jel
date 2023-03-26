@@ -208,9 +208,9 @@ func (self Expr) AppendExpr(text []byte, args []interface{}) ([]byte, []interfac
 	return bui.Get()
 }
 
-// Implement the `Appender` interface, sometimes allowing more efficient text
-// encoding.
-func (self Expr) Append(text []byte) []byte { return exprAppend(&self, text) }
+// Implement a hidden interface supported by some libraries, sometimes allowing
+// more efficient text encoding.
+func (self Expr) AppendTo(text []byte) []byte { return exprAppend(&self, text) }
 
 // Implement the `fmt.Stringer` interface for debug purposes.
 func (self Expr) String() string { return exprString(&self) }

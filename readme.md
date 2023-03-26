@@ -1,3 +1,5 @@
+**Moved to https://github.com/mitranim/sqlb**. This repo is usable but frozen.
+
 ## Overview
 
 "JSON Expession Language". Expresses a whitelisted subset of SQL with simple JSON structures. Transcodes JSON queries to SQL.
@@ -6,9 +8,11 @@ See the full documentation at https://godoc.org/github.com/mitranim/jel.
 
 See the sibling library https://github.com/mitranim/sqlb for SQL query building.
 
-**This repo is deprecated: the code has been merged into https://github.com/mitranim/sqlb.**
-
 ## Changelog
+
+### 0.3.0
+
+Rename `Expr.Append` to `Expr.AppendTo` for consistency with other libraries. The repo is now frozen/moved. See https://github.com/mitranim/sqlb.
 
 ### 0.2.0
 
